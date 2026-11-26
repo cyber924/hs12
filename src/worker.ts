@@ -115,7 +115,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
   const publicArticleMatch=path.match(/^\/api\/public\/articles\/([^/]+)$/);
   if(publicArticleMatch && method==="GET"){
-    const row=await env.DB.prepare("SELECT id,slug,status FROM articles WHERE slug=? AND status='published'").bind(publicArticleMatch[1]).first<any>();
+    const row=await env.DB.prepare("SELECT id,slug,status FROM articles WHERE slug=? AND status='published'").bind(decodeURIComponent(publicArticleMatch[1])).first<any>();
     if(!row)return json({error:"게시글을 찾을 수 없습니다."},404);
     await env.DB.prepare("INSERT INTO article_stats(article_id,views,likes,updated_at) VALUES(?,1,0,?) ON CONFLICT(article_id) DO UPDATE SET views=views+1,updated_at=excluded.updated_at").bind(row.id,now()).run();
     const stats=await env.DB.prepare("SELECT views,likes FROM article_stats WHERE article_id=?").bind(row.id).first<any>();
