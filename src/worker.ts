@@ -132,6 +132,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     return json({ user },200,token?{"set-cookie":cookie(token,30*86400)}:{});
   }
   if (!user) return json({ error: "로그인이 필요합니다." },401);
+  const requireAdAdmin=async()=>{const owner=await env.DB.prepare("SELECT id FROM users ORDER BY created_at ASC LIMIT 1").first<{id:string}>();return !!owner&&owner.id===user.id;};
 
   const likeMatch=path.match(/^\/api\/public\/articles\/([^/]+)\/like$/);
   if(likeMatch && method==="POST"){
