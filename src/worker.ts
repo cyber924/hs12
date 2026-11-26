@@ -144,7 +144,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if(!token)return json({authenticated:false,cookiePresent:false});
     try{
       const session=await env.DB.prepare("SELECT expires_at FROM sessions WHERE token_hash=?").bind(await digest(token)).first<{expires_at:string}>();
-      const userRow=session?await env.DB.prepare("SELECT id,email,display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?").bind(await digest(token),now()).first<User>():null;
+      const userRow=session?await env.DB.prepare("SELECT u.id AS id,u.email AS email,u.display_name AS display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?").bind(await digest(token),now()).first<User>():null;
       return json({authenticated:!!userRow,cookiePresent:true,sessionFound:!!session,expiresAt:session?.expires_at||null,user:userRow||null});
     }catch(error){
       console.error("HS12 auth status diagnostic failed:",error);
