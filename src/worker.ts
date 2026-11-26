@@ -111,7 +111,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
   if (path === "/api/public/ads" && method === "GET") {
     const {results}=await env.DB.prepare("SELECT id,title,summary,image_url,cta_label,target_url,placement FROM sponsored_ads WHERE active=1 ORDER BY sort_order,created_at DESC LIMIT 8").all();
-    return json({items:results},{headers:{"cache-control":"public, max-age=60"}} as any);
+    return json({items:results},200,{"cache-control":"public, max-age=60"});
   }
   const publicArticleMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)$/);
   if(publicArticleMatch && method==="GET"){
