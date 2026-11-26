@@ -113,7 +113,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const {results}=await env.DB.prepare("SELECT id,title,summary,image_url,cta_label,target_url,placement FROM sponsored_ads WHERE active=1 ORDER BY sort_order,created_at DESC LIMIT 8").all();
     return json({items:results},200,{"cache-control":"public, max-age=60"});
   }
-  const publicArticleMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)$/);
+  const publicArticleMatch=path.match(/^\/api\/public\/articles\/([^/]+)$/);
   if(publicArticleMatch && method==="GET"){
     const row=await env.DB.prepare("SELECT id,slug,status FROM articles WHERE slug=? AND status='published'").bind(publicArticleMatch[1]).first<any>();
     if(!row)return json({error:"게시글을 찾을 수 없습니다."},404);
@@ -133,7 +133,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
   if (!user) return json({ error: "로그인이 필요합니다." },401);
 
-  const likeMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)\\/like$/);
+  const likeMatch=path.match(/^\/api\/public\/articles\/([^/]+)\/like$/);
   if(likeMatch && method==="POST"){
     const article=await env.DB.prepare("SELECT id FROM articles WHERE id=? AND status='published'").bind(likeMatch[1]).first<any>();
     if(!article)return json({error:"게시글을 찾을 수 없습니다."},404);
@@ -144,7 +144,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const stats=await env.DB.prepare("SELECT views,likes FROM article_stats WHERE article_id=?").bind(article.id).first<any>();
     return json({liked:!prior,stats});
   }
-  const commentMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)\\/comments$/);
+  const commentMatch=path.match(/^\/api\/public\/articles\/([^/]+)\/comments$/);
   if(commentMatch && method==="POST"){
     const article=await env.DB.prepare("SELECT id FROM articles WHERE id=? AND status='published'").bind(commentMatch[1]).first<any>();
     if(!article)return json({error:"게시글을 찾을 수 없습니다."},404);
@@ -154,7 +154,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     await env.DB.prepare("INSERT INTO article_comments(id,article_id,user_id,display_name,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(commentId,article.id,user.id,user.display_name||user.email.split("@")[0],content,now(),now()).run();
     return json({id:commentId},201);
   }
-  const commentDelete=path.match(/^\\/api\\/comments\\/([^/]+)$/);
+  const commentDelete=path.match(/^\/api\/comments\/([^/]+)$/);
   if(commentDelete && method==="DELETE"){
     await env.DB.prepare("DELETE FROM article_comments WHERE id=? AND user_id=?").bind(commentDelete[1],user.id).run();return json({ok:true});
   }
@@ -166,7 +166,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if(!title||!/^https:\\/\\//i.test(image)||!/^https:\\/\\//i.test(target))return json({error:"제목과 HTTPS 이미지·연결 주소를 입력하세요."},400);
     const adId=id();await env.DB.prepare("INSERT INTO sponsored_ads(id,title,summary,image_url,cta_label,target_url,placement,active,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?,?)").bind(adId,title,String(b.summary||""),image,String(b.cta_label||"자세히 보기"),target,String(b.placement||"sidebar"),Number(b.sort_order||0),now(),now()).run();return json({id:adId},201);
   }
-  const adMatch=path.match(/^\\/api\\/ads\\/([^/]+)$/);
+  const adMatch=path.match(/^\/api\/ads\/([^/]+)$/);
   if(adMatch && method==="PATCH"){
     const b=await body(request);await env.DB.prepare("UPDATE sponsored_ads SET title=?,summary=?,image_url=?,cta_label=?,target_url=?,active=?,sort_order=?,updated_at=? WHERE id=?").bind(String(b.title||""),String(b.summary||""),String(b.image_url||""),String(b.cta_label||"자세히 보기"),String(b.target_url||""),b.active===false?0:1,Number(b.sort_order||0),now(),adMatch[1]).run();return json({ok:true});
   }
