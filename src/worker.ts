@@ -59,7 +59,16 @@ async function gemini(env: Env, prompt: string, system: string, jsonMode = true)
 }
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url), path = url.pathname, method = request.method;
-  if (path === "/api/health") return json({ ok: true, service: "HS12", storage: "D1", aiConfigured: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL || "gemini-3.8-flash" });
+  if (path === "/api/health") {
+    try {
+      const row = await env.DB.prepare("SELECT COUNT(*) AS users FROM users").first<{users:number}>();
+      const tables = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all<{name:string}>();
+      return json({ ok: true, service: "HS12", storage: "D1", database: "connected", userCount: row?.users ?? null, tables: (tables.results || []).map(x => x.name), aiConfigured: !!env.GEMINI_API_KEY, model: env.GEMINI_MODEL || "gemini-3.8-flash" });
+    } catch (error) {
+      console.error("HS12 health D1 check failed:", error);
+      return json({ ok: false, service: "HS12", database: "error", detail: error instanceof Error ? error.message : "D1 query failed" }, 500);
+    }
+  }
   if (path === "/api/auth/register" && method === "POST") {
     const b = await body(request), email = String(b.email || "").trim().toLowerCase(), password = String(b.password || ""), displayName = String(b.displayName || email.split("@")[0] || "").trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "올바른 이메일 주소를 입력하세요." }, 400);
