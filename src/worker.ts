@@ -143,9 +143,11 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const token=readCookie(request,"hs12_session");
     if(!token)return json({authenticated:false,cookiePresent:false});
     try{
-      const session=await env.DB.prepare("SELECT expires_at FROM sessions WHERE token_hash=?").bind(await digest(token)).first<{expires_at:string}>();
-      const userRow=session?await env.DB.prepare("SELECT u.id AS id,u.email AS email,u.display_name AS display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?").bind(await digest(token),now()).first<User>():null;
-      return json({authenticated:!!userRow,cookiePresent:true,sessionFound:!!session,expiresAt:session?.expires_at||null,user:userRow||null});
+      const tokenHash=await digest(token);
+      const session=await env.DB.prepare("SELECT user_id,expires_at FROM sessions WHERE token_hash=? AND expires_at>?").bind(tokenHash,now()).first<{user_id:string;expires_at:string}>();
+      if(!session)return json({authenticated:false,cookiePresent:true,sessionFound:false,stage:"session_lookup"});
+      const userRow=await env.DB.prepare("SELECT id,email,display_name FROM users WHERE id=?").bind(session.user_id).first<User>();
+      return json({authenticated:!!userRow,cookiePresent:true,sessionFound:true,expiresAt:session.expires_at,user:userRow||null,stage:userRow?"authenticated":"user_lookup"});
     }catch(error){
       console.error("HS12 auth status diagnostic failed:",error);
       return json({authenticated:false,cookiePresent:true,diagnosticError:error instanceof Error?error.message:String(error)},500);
