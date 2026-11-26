@@ -1,0 +1,20 @@
+name = "hs12"
+main = "src/worker.ts"
+compatibility_date = "2026-11-26"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/blog/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hs12-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[vars]
+GEMINI_MODEL = "gemini-3.8-flash"
+SITE_NAME = "HUBSTUDIO 12"
+SITE_URL = "https://hs12.cyber924.workers.dev"
