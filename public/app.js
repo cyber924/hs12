@@ -32,7 +32,7 @@ document.addEventListener("change",async e=>{if(e.target.id==="thread-select"){a
 (async()=>{try{const r=await req("/api/auth/me");me=r.user;await refresh();if(window.__HS12_PUBLIC_ARTICLE__){
 const a=window.__HS12_PUBLIC_ARTICLE__,c=a.content||{},sections=Array.isArray(c.sections)?c.sections:[];
 const imageCandidates=[...(Array.isArray(a.imageUrls)?a.imageUrls:[]),...(Array.isArray(c.imageUrls)?c.imageUrls:[]),c.coverImageUrl,c.heroImageUrl,c.imageUrl,...sections.flatMap(x=>[x.imageUrl,x.image_url,x.image,x.imageURL])];
-const hero=imageCandidates.find(x=>typeof x==="string"&&/^https?:\\/\\//i.test(x))||"";
+const isImageUrl=x=>typeof x==="string"&&(x.startsWith("https://")||x.startsWith("http://"));const hero=imageCandidates.find(isImageUrl)||"";
 const sectionImage=(s)=>s.imageUrl||s.image_url||s.imageURL||s.image||"";
 const toc=sections.filter(x=>x.heading).map((x,i)=>'<a href="#section-'+i+'">'+esc(x.heading)+'</a>').join("");
 const date=a.published_at?new Date(a.published_at).toLocaleDateString("ko-KR"):"HUBSTUDIO 12";
