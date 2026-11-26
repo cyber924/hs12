@@ -162,15 +162,18 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const {results}=await env.DB.prepare("SELECT * FROM sponsored_ads ORDER BY sort_order,created_at DESC").all();return json({items:results});
   }
   if(path==="/api/ads" && method==="POST"){
+    if(!await requireAdAdmin())return json({error:"광고 관리는 최초 관리자 계정만 이용할 수 있습니다."},403);
     const b=await body(request),title=String(b.title||"").trim(),image=String(b.image_url||"").trim(),target=String(b.target_url||"").trim();
     if(!title||!/^https:\\/\\//i.test(image)||!/^https:\\/\\//i.test(target))return json({error:"제목과 HTTPS 이미지·연결 주소를 입력하세요."},400);
     const adId=id();await env.DB.prepare("INSERT INTO sponsored_ads(id,title,summary,image_url,cta_label,target_url,placement,active,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?,?)").bind(adId,title,String(b.summary||""),image,String(b.cta_label||"자세히 보기"),target,String(b.placement||"sidebar"),Number(b.sort_order||0),now(),now()).run();return json({id:adId},201);
   }
   const adMatch=path.match(/^\/api\/ads\/([^/]+)$/);
   if(adMatch && method==="PATCH"){
+    if(!await requireAdAdmin())return json({error:"광고 관리는 최초 관리자 계정만 이용할 수 있습니다."},403);
     const b=await body(request);await env.DB.prepare("UPDATE sponsored_ads SET title=?,summary=?,image_url=?,cta_label=?,target_url=?,active=?,sort_order=?,updated_at=? WHERE id=?").bind(String(b.title||""),String(b.summary||""),String(b.image_url||""),String(b.cta_label||"자세히 보기"),String(b.target_url||""),b.active===false?0:1,Number(b.sort_order||0),now(),adMatch[1]).run();return json({ok:true});
   }
-  if(adMatch && method==="DELETE"){await env.DB.prepare("DELETE FROM sponsored_ads WHERE id=?").bind(adMatch[1]).run();return json({ok:true});}
+  if(adMatch && method==="DELETE"){
+    if(!await requireAdAdmin())return json({error:"광고 관리는 최초 관리자 계정만 이용할 수 있습니다."},403);await env.DB.prepare("DELETE FROM sponsored_ads WHERE id=?").bind(adMatch[1]).run();return json({ok:true});}
   if (path === "/api/images" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM images WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
     return json({ items: results });
