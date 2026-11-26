@@ -67,7 +67,14 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const salt = randomToken(), userId = id(), time = now();
     try {
       await env.DB.prepare("INSERT INTO users(id,email,password_hash,password_salt,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(userId,email,await passwordHash(password,salt),salt,displayName,time,time).run();
-    } catch { return json({ error: "이미 가입된 이메일입니다." }, 409); }
+    } catch (error) {
+      console.error("HS12 registration insert failed:", error);
+      const message = error instanceof Error ? error.message : "unknown database error";
+      if (/UNIQUE constraint failed: users.email/i.test(message)) {
+        return json({ error: "이미 가입된 이메일입니다." }, 409);
+      }
+      return json({ error: "회원 정보를 D1에 저장하지 못했습니다. Worker의 DB 바인딩과 users 테이블을 확인하세요." }, 500);
+    }
     const token = randomToken();
     await env.DB.prepare("INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)").bind(id(),userId,await digest(token),new Date(Date.now()+30*86400000).toISOString(),time).run();
     return json({ user: { id:userId,email,display_name:displayName } }, 201, { "set-cookie": cookie(token,30*86400) });
