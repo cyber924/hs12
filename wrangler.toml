@@ -11,7 +11,7 @@ run_worker_first = ["/api/*", "/blog/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "hs12-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "3232e29a-d71c-42bb-8821-24484e4a72f5"
 migrations_dir = "migrations"
 
 [vars]
