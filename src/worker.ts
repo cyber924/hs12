@@ -30,10 +30,11 @@ function cookie(token: string, maxAge: number) {
 function readCookie(request: Request, name: string) {
   return request.headers.get("Cookie")?.split(";").map(x => x.trim()).find(x => x.startsWith(name + "="))?.slice(name.length + 1) || "";
 }
-async function auth(request: Request, env: Env): Promise<User | null> {
+async function auth(request: Request, env: Env): Promise<User | null> {async function auth(request: Request, env: Env): Promise<User | null> {
   const token = readCookie(request, "hs12_session");
   if (!token) return null;
   const row = await env.DB.prepare(`SELECT u.id,u.email,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`).bind(await digest(token), now()).first<User>();
+  if (row) await env.DB.prepare("UPDATE sessions SET expires_at=? WHERE token_hash=?").bind(new Date(Date.now()+30*86400000).toISOString(), await digest(token)).run();
   return row || null;
 }
 const requireUser = (u: User | null) => u || null;
@@ -108,14 +109,68 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await digest(token)).run();
     return json({ ok:true },200,{ "set-cookie": cookie("",0) });
   }
+  if (path === "/api/public/ads" && method === "GET") {
+    const {results}=await env.DB.prepare("SELECT id,title,summary,image_url,cta_label,target_url,placement FROM sponsored_ads WHERE active=1 ORDER BY sort_order,created_at DESC LIMIT 8").all();
+    return json({items:results},{headers:{"cache-control":"public, max-age=60"}} as any);
+  }
+  const publicArticleMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)$/);
+  if(publicArticleMatch && method==="GET"){
+    const row=await env.DB.prepare("SELECT id,slug,status FROM articles WHERE slug=? AND status='published'").bind(publicArticleMatch[1]).first<any>();
+    if(!row)return json({error:"게시글을 찾을 수 없습니다."},404);
+    await env.DB.prepare("INSERT INTO article_stats(article_id,views,likes,updated_at) VALUES(?,1,0,?) ON CONFLICT(article_id) DO UPDATE SET views=views+1,updated_at=excluded.updated_at").bind(row.id,now()).run();
+    const stats=await env.DB.prepare("SELECT views,likes FROM article_stats WHERE article_id=?").bind(row.id).first<any>();
+    const {results:comments}=await env.DB.prepare("SELECT id,display_name,content,created_at FROM article_comments WHERE article_id=? ORDER BY created_at DESC LIMIT 100").bind(row.id).all();
+    return json({stats:stats||{views:1,likes:0},comments});
+  }
   if (path === "/api/public/articles" && method === "GET") {
     const { results } = await env.DB.prepare(`SELECT id,title,slug,summary,topic,keyword,content_json,image_urls_json,tags_json,status,published_at,created_at,updated_at FROM articles WHERE status='published' ORDER BY published_at DESC LIMIT 60`).all();
     return json({ items: results.map(articleRow) }, 200, { "cache-control": "public, max-age=30" });
   }
   const user = await auth(request,env);
-  if (path === "/api/auth/me" && method === "GET") return json({ user });
+  if (path === "/api/auth/me" && method === "GET") {
+    const token=readCookie(request,"hs12_session");
+    return json({ user },200,token?{"set-cookie":cookie(token,30*86400)}:{});
+  }
   if (!user) return json({ error: "로그인이 필요합니다." },401);
 
+  const likeMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)\\/like$/);
+  if(likeMatch && method==="POST"){
+    const article=await env.DB.prepare("SELECT id FROM articles WHERE id=? AND status='published'").bind(likeMatch[1]).first<any>();
+    if(!article)return json({error:"게시글을 찾을 수 없습니다."},404);
+    const prior=await env.DB.prepare("SELECT 1 FROM article_likes WHERE article_id=? AND user_id=?").bind(article.id,user.id).first();
+    if(prior) await env.DB.prepare("DELETE FROM article_likes WHERE article_id=? AND user_id=?").bind(article.id,user.id).run();
+    else await env.DB.prepare("INSERT INTO article_likes(article_id,user_id,created_at) VALUES(?,?,?)").bind(article.id,user.id,now()).run();
+    await env.DB.prepare("INSERT INTO article_stats(article_id,views,likes,updated_at) VALUES(?,0,?,?) ON CONFLICT(article_id) DO UPDATE SET likes=(SELECT COUNT(*) FROM article_likes WHERE article_id=?),updated_at=excluded.updated_at").bind(article.id,prior?0:1,now(),article.id).run();
+    const stats=await env.DB.prepare("SELECT views,likes FROM article_stats WHERE article_id=?").bind(article.id).first<any>();
+    return json({liked:!prior,stats});
+  }
+  const commentMatch=path.match(/^\\/api\\/public\\/articles\\/([^/]+)\\/comments$/);
+  if(commentMatch && method==="POST"){
+    const article=await env.DB.prepare("SELECT id FROM articles WHERE id=? AND status='published'").bind(commentMatch[1]).first<any>();
+    if(!article)return json({error:"게시글을 찾을 수 없습니다."},404);
+    const b=await body(request),content=String(b.content||"").trim();
+    if(!content||content.length>2000)return json({error:"댓글은 1~2,000자로 입력하세요."},400);
+    const commentId=id();
+    await env.DB.prepare("INSERT INTO article_comments(id,article_id,user_id,display_name,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(commentId,article.id,user.id,user.display_name||user.email.split("@")[0],content,now(),now()).run();
+    return json({id:commentId},201);
+  }
+  const commentDelete=path.match(/^\\/api\\/comments\\/([^/]+)$/);
+  if(commentDelete && method==="DELETE"){
+    await env.DB.prepare("DELETE FROM article_comments WHERE id=? AND user_id=?").bind(commentDelete[1],user.id).run();return json({ok:true});
+  }
+  if(path==="/api/ads" && method==="GET"){
+    const {results}=await env.DB.prepare("SELECT * FROM sponsored_ads ORDER BY sort_order,created_at DESC").all();return json({items:results});
+  }
+  if(path==="/api/ads" && method==="POST"){
+    const b=await body(request),title=String(b.title||"").trim(),image=String(b.image_url||"").trim(),target=String(b.target_url||"").trim();
+    if(!title||!/^https:\\/\\//i.test(image)||!/^https:\\/\\//i.test(target))return json({error:"제목과 HTTPS 이미지·연결 주소를 입력하세요."},400);
+    const adId=id();await env.DB.prepare("INSERT INTO sponsored_ads(id,title,summary,image_url,cta_label,target_url,placement,active,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?,?)").bind(adId,title,String(b.summary||""),image,String(b.cta_label||"자세히 보기"),target,String(b.placement||"sidebar"),Number(b.sort_order||0),now(),now()).run();return json({id:adId},201);
+  }
+  const adMatch=path.match(/^\\/api\\/ads\\/([^/]+)$/);
+  if(adMatch && method==="PATCH"){
+    const b=await body(request);await env.DB.prepare("UPDATE sponsored_ads SET title=?,summary=?,image_url=?,cta_label=?,target_url=?,active=?,sort_order=?,updated_at=? WHERE id=?").bind(String(b.title||""),String(b.summary||""),String(b.image_url||""),String(b.cta_label||"자세히 보기"),String(b.target_url||""),b.active===false?0:1,Number(b.sort_order||0),now(),adMatch[1]).run();return json({ok:true});
+  }
+  if(adMatch && method==="DELETE"){await env.DB.prepare("DELETE FROM sponsored_ads WHERE id=?").bind(adMatch[1]).run();return json({ok:true});}
   if (path === "/api/images" && method === "GET") {
     const { results } = await env.DB.prepare("SELECT * FROM images WHERE user_id=? ORDER BY created_at DESC").bind(user.id).all();
     return json({ items: results });
