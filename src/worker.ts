@@ -25,7 +25,7 @@ async function passwordHash(password: string, salt: string) {
   return hex(new Uint8Array(bits));
 }
 function cookie(token: string, maxAge: number) {
-  return `hs12_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+  return `hs12_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}; Expires=${new Date(Date.now()+maxAge*1000).toUTCString()}`;
 }
 function readCookie(request: Request, name: string) {
   return request.headers.get("Cookie")?.split(";").map(x => x.trim()).find(x => x.startsWith(name + "="))?.slice(name.length + 1) || "";
@@ -98,8 +98,21 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   }
   if (path === "/api/auth/login" && method === "POST") {
     const b = await body(request), email = String(b.email || "").trim().toLowerCase(), password = String(b.password || "");
-    const user = await env.DB.prepare("SELECT id,email,password_hash,password_salt,display_name FROM users WHERE email=?").bind(email).first<any>();
-    if (!user || await passwordHash(password,user.password_salt) !== user.password_hash) return json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." }, 401);
+    let user:any;
+    try {
+      user = await env.DB.prepare("SELECT id,email,password_hash,password_salt,display_name FROM users WHERE lower(email)=?").bind(email).first<any>();
+    } catch (error) {
+      console.error("HS12 login user lookup failed:",error);
+      return json({error:"로그인 계정 조회에 실패했습니다.",stage:"login_user_lookup",detail:error instanceof Error?error.message:String(error)},500);
+    }
+    if (!user) return json({error:"등록된 이메일 계정을 찾을 수 없습니다.",stage:"login_user_not_found"},401);
+    let calculatedHash:string;
+    try { calculatedHash=await passwordHash(password,user.password_salt); }
+    catch(error) {
+      console.error("HS12 login password verification failed:",error);
+      return json({error:"비밀번호 확인 단계에서 실패했습니다.",stage:"login_password_hash",detail:error instanceof Error?error.message:String(error)},500);
+    }
+    if(calculatedHash!==user.password_hash) return json({error:"비밀번호가 일치하지 않습니다.",stage:"login_password_mismatch"},401);
     const token = randomToken(), time = now();
     await env.DB.prepare("INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)").bind(id(),user.id,await digest(token),new Date(Date.now()+30*86400000).toISOString(),time).run();
     return json({ user: { id:user.id,email:user.email,display_name:user.display_name } }, 200, { "set-cookie": cookie(token,30*86400) });
