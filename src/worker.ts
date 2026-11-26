@@ -30,7 +30,7 @@ function cookie(token: string, maxAge: number) {
 function readCookie(request: Request, name: string) {
   return request.headers.get("Cookie")?.split(";").map(x => x.trim()).find(x => x.startsWith(name + "="))?.slice(name.length + 1) || "";
 }
-async function auth(request: Request, env: Env): Promise<User | null> {async function auth(request: Request, env: Env): Promise<User | null> {
+async function auth(request: Request, env: Env): Promise<User | null> {
   const token = readCookie(request, "hs12_session");
   if (!token) return null;
   const row = await env.DB.prepare(`SELECT u.id,u.email,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`).bind(await digest(token), now()).first<User>();
