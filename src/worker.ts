@@ -74,15 +74,22 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "올바른 이메일 주소를 입력하세요." }, 400);
     if (password.length < 8 || password.length > 72) return json({ error: "비밀번호는 8~72자로 입력하세요." }, 400);
     const salt = randomToken(), userId = id(), time = now();
+    let hashedPassword: string;
     try {
-      await env.DB.prepare("INSERT INTO users(id,email,password_hash,password_salt,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(userId,email,await passwordHash(password,salt),salt,displayName,time,time).run();
+      hashedPassword = await passwordHash(password, salt);
     } catch (error) {
-      console.error("HS12 registration insert failed:", error);
-      const message = error instanceof Error ? error.message : "unknown database error";
+      console.error("HS12 password hashing failed:", error);
+      return json({ error: "비밀번호 보안 처리 단계에서 실패했습니다.", stage: "password_hash", detail: error instanceof Error ? error.message : String(error) }, 500);
+    }
+    try {
+      await env.DB.prepare("INSERT INTO users(id,email,password_hash,password_salt,display_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?)").bind(userId,email,hashedPassword,salt,displayName,time,time).run();
+    } catch (error) {
+      console.error("HS12 D1 user INSERT failed:", error);
+      const message = error instanceof Error ? error.message : String(error);
       if (/UNIQUE constraint failed: users.email/i.test(message)) {
         return json({ error: "이미 가입된 이메일입니다." }, 409);
       }
-      return json({ error: "회원 정보를 D1에 저장하지 못했습니다. Worker의 DB 바인딩과 users 테이블을 확인하세요." }, 500);
+      return json({ error: "D1 회원 INSERT 단계에서 실패했습니다.", stage: "d1_user_insert", detail: message }, 500);
     }
     const token = randomToken();
     await env.DB.prepare("INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)").bind(id(),userId,await digest(token),new Date(Date.now()+30*86400000).toISOString(),time).run();
