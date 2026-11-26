@@ -164,7 +164,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   if(path==="/api/ads" && method==="POST"){
     if(!await requireAdAdmin())return json({error:"광고 관리는 최초 관리자 계정만 이용할 수 있습니다."},403);
     const b=await body(request),title=String(b.title||"").trim(),image=String(b.image_url||"").trim(),target=String(b.target_url||"").trim();
-    if(!title||!/^https:\\/\\//i.test(image)||!/^https:\\/\\//i.test(target))return json({error:"제목과 HTTPS 이미지·연결 주소를 입력하세요."},400);
+    if(!title||!/^https:\/\//i.test(image)||!/^https:\/\//i.test(target))return json({error:"제목과 HTTPS 이미지·연결 주소를 입력하세요."},400);
     const adId=id();await env.DB.prepare("INSERT INTO sponsored_ads(id,title,summary,image_url,cta_label,target_url,placement,active,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?,?)").bind(adId,title,String(b.summary||""),image,String(b.cta_label||"자세히 보기"),target,String(b.placement||"sidebar"),Number(b.sort_order||0),now(),now()).run();return json({id:adId},201);
   }
   const adMatch=path.match(/^\/api\/ads\/([^/]+)$/);
