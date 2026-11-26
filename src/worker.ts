@@ -154,7 +154,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if(!thread){await env.DB.prepare("INSERT INTO agent_threads(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)").bind(threadId,user.id,message.slice(0,70),now(),now()).run();}
     await env.DB.prepare("INSERT INTO agent_messages(id,thread_id,user_id,role,content,created_at) VALUES(?,?,?,?,?,?)").bind(id(),threadId,user.id,"user",message,now()).run();
     const history=await env.DB.prepare("SELECT role,content FROM agent_messages WHERE thread_id=? AND user_id=? ORDER BY created_at DESC LIMIT 16").bind(threadId,user.id).all();
-    const instruction=`당신은 HubStudio 12의 편집장 겸 실행형 블로그 에이전트입니다. 사용자의 한국어 요청을 이해하고 아래 JSON으로 답하세요. 가능한 action은 generate, plan, review, rewrite, publish, list, reply 입니다. 확실히 원고 생성 요청이면 generate, 기획이면 plan, 검수면 review, 수정이면 rewrite, 발행이면 publish, 보관함 조회면 list. 기존 글이 필요하면 articleId를 요청하세요. 형식: {"action":"...","reply":"사용자에게 보여줄 짧은 설명","topic":"주제","articleId":"","instruction":"","tone":"...","audience":"...","keyword":"..."}`;
+    const instruction=`당신은 HubStudio 12의 편집장 겸 실행형 블로그 에이전트입니다. 사용자의 한국어 요청을 이해하고 아래 JSON으로 답하세요. 가능한 action은 generate, plan, review, rewrite, replace_images, publish, list, reply 입니다. 확실히 원고 생성 요청이면 generate, 기획이면 plan, 검수면 review, 수정이면 rewrite, 발행이면 publish, 보관함 조회면 list. 기존 글이 필요하면 articleId를 요청하세요. 형식: {"action":"...","reply":"사용자에게 보여줄 짧은 설명","topic":"주제","articleId":"","instruction":"","tone":"...","audience":"...","keyword":"..."}`;
     let decision:any;
     try{decision=await gemini(env,JSON.stringify((history.results||[]).reverse()),instruction,true);}catch(e){decision={action:"reply",reply:e instanceof Error?e.message:"AI 처리 실패"};}
     let result:any=null, reply=String(decision.reply||"요청을 처리했습니다.");
@@ -182,6 +182,17 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
         const current=JSON.parse(row.content_json||"{}");
         const revised=await gemini(env,JSON.stringify({content:current,instruction:decision.instruction||message}),"사용자 수정 지시를 원고에 반영하세요. 기존 구조와 유효한 이미지 URL을 유지하고 완성된 원고 JSON을 반환하세요.");
         await env.DB.prepare("UPDATE articles SET title=?,summary=?,content_json=?,updated_at=?,revision=revision+1 WHERE id=?").bind(String(revised.title||row.title),String(revised.summary||row.summary),JSON.stringify(revised),now(),row.id).run();result=revised;reply="수정 원고를 저장했습니다.";
+      }
+    }else if(action==="replace_images"&&decision.articleId){
+      const row=await env.DB.prepare("SELECT * FROM articles WHERE id=? AND user_id=?").bind(decision.articleId,user.id).first<any>();
+      if(!row)reply="해당 원고를 찾을 수 없습니다.";
+      else{
+        const assets=await env.DB.prepare("SELECT title,image_url,category,alt_text FROM images WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(user.id).all();
+        const contentObj=JSON.parse(row.content_json||"{}");
+        const mapped=await gemini(env,JSON.stringify({content:contentObj,availableImages:assets.results||[]}),"각 섹션에 가장 어울리는 이미지를 availableImages 목록에서만 선택하세요. URL을 새로 만들지 마세요. JSON 객체의 sections 배열에 index, imageUrl, alt, caption을 반환하세요.");
+        for(const item of mapped.sections||[]){const section=(contentObj.sections||[])[Number(item.index)];if(section&&(assets.results||[]).some((x:any)=>x.image_url===item.imageUrl)){section.imageUrl=item.imageUrl;section.alt=item.alt||section.heading;section.caption=item.caption||"";}}
+        await env.DB.prepare("UPDATE articles SET content_json=?,updated_at=?,revision=revision+1 WHERE id=?").bind(JSON.stringify(contentObj),now(),row.id).run();
+        result=mapped;reply="등록된 이미지 자산을 본문 문맥에 맞춰 배치하고 저장했습니다.";
       }
     }else if(action==="list"){
       const {results}=await env.DB.prepare("SELECT id,title,status,updated_at FROM articles WHERE user_id=? ORDER BY updated_at DESC LIMIT 10").bind(user.id).all();result=results;reply="최근 보관함 원고 목록입니다.";
