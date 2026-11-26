@@ -85,6 +85,10 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await digest(token)).run();
     return json({ ok:true },200,{ "set-cookie": cookie("",0) });
   }
+  if (path === "/api/public/articles" && method === "GET") {
+    const { results } = await env.DB.prepare(`SELECT id,title,slug,summary,topic,keyword,content_json,image_urls_json,tags_json,status,published_at,created_at,updated_at FROM articles WHERE status='published' ORDER BY published_at DESC LIMIT 60`).all();
+    return json({ items: results.map(articleRow) }, 200, { "cache-control": "public, max-age=30" });
+  }
   const user = await auth(request,env);
   if (path === "/api/auth/me" && method === "GET") return json({ user });
   if (!user) return json({ error: "로그인이 필요합니다." },401);
